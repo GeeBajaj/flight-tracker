@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "flight-tracker-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+
+  "vars": {
+    // Sites allowed to call the proxy from a browser (comma-separated, exact origins).
+    "ALLOWED_ORIGINS": "https://geebajaj.github.io,http://localhost:3000"
+  },
+
+  // Per-visitor (IP) limit; each lookup is one request.
+  "ratelimits": [
+    { "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }
+  ],
+
+  "observability": { "enabled": true }
+
+  // The API key is a secret, not a var: npx wrangler secret put AERODATABOX_KEY
+}

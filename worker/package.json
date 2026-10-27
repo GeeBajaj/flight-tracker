@@ -1,0 +1,13 @@
+{
+  "name": "flight-tracker-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that adds the AeroDataBox API key to Flight Tracker requests.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.154.0"
+  }
+}
