@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flight Tracker</title>
+  <meta name="description" content="Track any number of flights live by flight number and date.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,18 +21,45 @@
                pattern="\s*[A-Za-z0-9]{2,3}[\s-]?\d{1,4}[A-Za-z]?\s*" title="Airline code + number, e.g. UA123">
       </label>
       <label>
-        <span>Departure date (local)</span>
-        <input id="date" name="date" type="date" required>
+        <span>Departure date (local, optional)</span>
+        <input id="date" name="date" type="date">
       </label>
-      <button type="submit">Track flight</button>
+      <button id="submit" type="submit">Find dates</button>
     </form>
+    <p class="hint">Leave the date blank to choose from the flight's next operating dates.</p>
     <p id="form-msg" class="form-msg" role="status"></p>
+    <section id="date-picker" class="picker" hidden></section>
     <p id="config-warning" class="config-warning" hidden></p>
 
     <section id="flights" class="flights" aria-live="polite"></section>
     <p id="empty" class="empty">No flights tracked yet. Add one above.</p>
+
+    <details id="settings" class="settings">
+      <summary>Settings</summary>
+      <form id="key-form" class="settings-row" autocomplete="off">
+        <label>
+          <span>AeroDataBox API key (RapidAPI)</span>
+          <input id="api-key" type="password" placeholder="Paste your RapidAPI key" spellcheck="false">
+        </label>
+        <button type="submit">Save key</button>
+      </form>
+      <p class="hint">
+        Stored only in this browser and sent only to AeroDataBox.
+        Get a free key at <a href="https://rapidapi.com/aedbx-aedbx/api/aerodatabox" target="_blank" rel="noopener">rapidapi.com</a>.
+        <span id="key-msg" role="status"></span>
+      </p>
+      <div class="settings-row">
+        <button id="export" type="button">Export flights</button>
+        <label class="file-btn">
+          <input id="import" type="file" accept="application/json,.json">
+          <span>Import flights</span>
+        </label>
+      </div>
+      <p class="hint">Your tracked flights are saved in this browser automatically. Export them to a file to back them up or move them to another device. <span id="state-msg" role="status"></span></p>
+    </details>
   </main>
 
+  <script src="aerodatabox.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
