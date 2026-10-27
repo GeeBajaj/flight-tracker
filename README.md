@@ -1,13 +1,15 @@
 # Flight Tracker
 
-Track live flights by flight number. Enter just the flight number to choose from its upcoming departure dates, or give a specific date. You can track as many flights (and dates) as you like, and each one refreshes on its own.
+Track live flights by flight number. Enter just the flight number to see where it goes, when it usually leaves and a calendar of every date it flies, or give a specific date. You can track as many flights (and dates) as you like, and each one refreshes on its own.
 
-It runs entirely in your browser: no backend, no account, no build step. You bring your own free [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) API key.
+It's a static site: no build step and no account. Flight data comes from [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox). Each visitor can use their own free API key, or the site owner can run a small [proxy](#optional-shared-key-proxy) so nobody needs one.
 
 ## Features
 
-- **Flight number only:** type `UA1` and pick any, all, or one of its next 10 operating dates.
+- **Flight number only:** type `UA1` to see its next departure (route, scheduled times in local time, duration, aircraft) and a calendar of every date it operates, from a year back to a year ahead. Days it doesn't fly are greyed out and struck through. Pick one date, several, or a whole month.
 - **Specific date:** add a date to track one departure straight away.
+- **Route map:** a great-circle route between the airports with the part already flown highlighted, plus the plane's live position (or an estimate from the timetable when no live position is available).
+- **Share links:** copy a link to one flight or to your whole list. Opening it adds those flights for whoever clicks it.
 - **Live details:** status, departure and arrival times in **each airport's own time zone**, delays (scheduled times are crossed out when they change), terminal, gate, baggage belt, aircraft, and a progress bar. Altitude and ground speed appear while the flight is airborne.
 - **Multi-leg flights:** if a flight number covers several legs on the same day, every leg is shown.
 - **Smart refresh:** every 2 min in the air, every 3 min in the 3 hours before departure, and less often further out. Updates stop once a flight has arrived or been cancelled, which saves your API quota.
@@ -20,9 +22,11 @@ It runs entirely in your browser: no backend, no account, no build step. You bri
 2. Open the app, expand **Settings**, paste the key and click **Save key**.
 3. Enter a flight number (for example `BA117`) and click **Find dates**, or also fill in a date and click **Track flight**.
 
+If the site has a proxy configured, you can skip step 2.
+
 ### Your API key
 
-The key is stored only in your browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files. Anyone using a deployed copy of this site needs their own key.
+The key is stored only in your browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files and share links. If you add your own key, it is used instead of the site's proxy.
 
 ## Run locally
 
@@ -35,6 +39,27 @@ npm start
 ```
 
 Then open http://localhost:3000. `server.js` only serves the files in `public/`, the same way GitHub Pages does. Any other static file server works too.
+
+## Optional: shared key proxy
+
+`worker/` is a [Cloudflare Worker](https://developers.cloudflare.com/workers/) (free plan is enough) that adds your AeroDataBox key on the server, so visitors don't need their own. It only forwards the two lookups the app makes, only answers browsers from origins you allow, rate-limits each visitor to 30 requests a minute, and caches responses at the edge to save quota. Everyone who uses it shares your key's quota.
+
+Needs Node 22 or later.
+
+```sh
+cd worker
+npm install
+npx wrangler login
+npx wrangler secret put AERODATABOX_KEY   # paste your RapidAPI key when asked
+npx wrangler deploy                       # prints https://flight-tracker-proxy.<you>.workers.dev
+```
+
+Then:
+
+1. Put your site's origin (for example `https://<user>.github.io`) in `ALLOWED_ORIGINS` in `worker/wrangler.jsonc`, and redeploy if you changed it.
+2. Set `proxyUrl` in `public/config.js` to the URL that `wrangler deploy` printed.
+
+For local testing, put `AERODATABOX_KEY=...` in `worker/.dev.vars` (git-ignored) and run `npm run dev`.
 
 ## Deploy to GitHub Pages
 
@@ -49,8 +74,12 @@ The included workflow (`.github/workflows/pages.yml`) publishes the `public/` fo
 public/
   index.html      page markup
   styles.css      styles (light and dark)
-  app.js          tracking, refresh scheduling, date picker, saved state
+  config.js       site settings (proxy URL)
+  app.js          tracking, refresh scheduling, lookup, saved state, share links
+  calendar.js     month calendar of a flight's operating dates
+  map.js          route map (Leaflet + OpenStreetMap, loaded on first use)
   aerodatabox.js  API client: rate-limited requests, normalized flight data
+worker/           optional Cloudflare Worker that holds the API key
 server.js         tiny static server for local development
 ```
 
@@ -59,3 +88,5 @@ server.js         tiny static server for local development
 - Data comes from AeroDataBox. Coverage and accuracy depend on the airline and airport, and some smaller carriers may be missing or late to update.
 - The free plan has a monthly request quota and a per-second limit. The app spaces out its requests and caches results, but tracking many flights at once uses quota faster.
 - Flight dates are the local departure date at the origin airport.
+- The calendar shows the airline's published schedule, which usually runs about a year ahead. Days outside the range shown are faded rather than struck through.
+- Map tiles come from OpenStreetMap, which is fine for personal and light use. A busy deployment should switch to a commercial tile provider.
