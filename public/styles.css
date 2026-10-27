@@ -61,7 +61,7 @@ button { cursor: pointer; }
 }
 .picker .error, .picker .loading { margin-top: 0; }
 .picker-head { margin-bottom: 12px; }
-.picker-dates { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.picker-dates { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .date-chip {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer;
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font-size: 14px;

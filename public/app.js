@@ -67,7 +67,6 @@ function loadSaved() {
 }
 
 function snapshot() {
-  // Map order is insertion order (oldest first), which is what addFlight expects on restore.
   return [...trackers.values()].map((t) => ({
     number: t.number,
     date: t.date,
@@ -378,7 +377,12 @@ function addFlight(number, date, { persist = true, data = null, lastFetch = 0 } 
   }
   const t = new Tracker(number, date);
   trackers.set(key, t);
-  els.list.prepend(t.el);
+  // Keep cards ordered by departure date, then flight number.
+  const order = (a) => `${a.date}|${a.number}`;
+  const after = [...trackers.values()]
+    .filter((o) => order(o) > order(t))
+    .sort((a, b) => (order(a) < order(b) ? -1 : 1))[0];
+  els.list.insertBefore(t.el, after ? after.el : null);
   if (data && lastFetch) t.restore(data, lastFetch);
   else t.refresh();
   if (persist) save();
@@ -473,10 +477,8 @@ async function showDatePicker(number) {
   const to = new Date(today.getTime() + DATE_LOOKAHEAD_DAYS * 24 * 60 * MIN);
   let dates;
   try {
-    // Start a day early: the flight's local date at origin can be behind the browser's date.
-    const from = new Date(today.getTime() - 24 * 60 * MIN);
-    dates = (await fetchFlightDates(number, localYmd(from), localYmd(to), key))
-      .filter((d) => d >= localYmd(from))
+    dates = (await fetchFlightDates(number, localYmd(today), localYmd(to), key))
+      .filter((d) => d >= localYmd(today))
       .slice(0, DATE_OPTIONS);
   } catch (err) {
     if (req !== pickerRequest) return;
@@ -531,8 +533,7 @@ async function showDatePicker(number) {
         els.msg.textContent = 'Select at least one date.';
         return;
       }
-      // Add latest first so the earliest date ends up at the top of the list.
-      [...chosen].reverse().forEach((d) => addFlight(number, d));
+      chosen.forEach((d) => addFlight(number, d));
       els.msg.textContent = `Tracking ${number} on ${chosen.length} date${chosen.length > 1 ? 's' : ''}.`;
       els.number.value = '';
       closeDatePicker();
@@ -625,7 +626,6 @@ setInterval(() => {
   if (!getApiKey()) els.settings.open = true;
   updateSubmitLabel();
 
-  // Saved list is oldest-first; prepending each one puts the newest on top again.
   for (const f of loadSaved()) addFlight(f.number, f.date, { persist: false, data: f.data, lastFetch: f.lastFetch });
   save(); // migrates a v1 list to the current format
   storageSet(LEGACY_STORAGE_KEY, null);
