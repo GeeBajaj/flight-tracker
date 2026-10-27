@@ -1,6 +1,7 @@
 // AeroDataBox (via RapidAPI) client: https://rapidapi.com/aedbx-aedbx/api/aerodatabox
-// Called straight from the browser (RapidAPI allows CORS), so the site can be hosted
-// as static files. The API key is supplied by the user and kept in their browser.
+// Works two ways, so the site can be hosted as static files:
+//   - { key }:   call RapidAPI straight from the browser with the user's own key
+//   - { proxy }: call a proxy (see worker/) that adds the site owner's key
 
 const ADB_HOST = 'aerodatabox.p.rapidapi.com';
 const ADB_MIN_GAP_MS = 1100; // keep under the free tier's per-second limit
@@ -10,12 +11,15 @@ const ADB_MIN_GAP_MS = 1100; // keep under the free tier's per-second limit
 let adbQueue = Promise.resolve();
 let adbLastAt = 0;
 
-function adbRequest(path, key) {
+function adbRequest(path, auth) {
   const run = async () => {
     const wait = adbLastAt + ADB_MIN_GAP_MS - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     adbLastAt = Date.now();
-    return fetch(`https://${ADB_HOST}${path}`, { headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': ADB_HOST } });
+    if (auth.key) {
+      return fetch(`https://${ADB_HOST}${path}`, { headers: { 'X-RapidAPI-Key': auth.key, 'X-RapidAPI-Host': ADB_HOST } });
+    }
+    return fetch(auth.proxy.replace(/\/+$/, '') + path);
   };
   const p = adbQueue.then(run, run);
   adbQueue = p.catch(() => {});
@@ -28,7 +32,7 @@ function httpError(status, message) {
 
 async function adbCheck(r, notFound) {
   if (r.status === 204 || r.status === 404) throw httpError(404, notFound);
-  if (r.status === 401 || r.status === 403) throw httpError(401, 'AeroDataBox rejected the API key. Check it in Settings.');
+  if (r.status === 401 || r.status === 403) throw httpError(401, 'The flight data API rejected the request. Check the API key in Settings.');
   if (r.status === 429) throw httpError(429, 'AeroDataBox rate limit reached. Try again shortly.');
   if (!r.ok) throw httpError(502, `AeroDataBox error (${r.status}).`);
   const text = await r.text();
@@ -36,13 +40,13 @@ async function adbCheck(r, notFound) {
 }
 
 // Local departure dates (YYYY-MM-DD) on which a flight number operates.
-async function fetchFlightDates(number, from, to, key) {
-  const r = await adbRequest(`/flights/number/${encodeURIComponent(number)}/dates/${from}/${to}`, key);
-  const list = await adbCheck(r, `No upcoming dates found for ${number}.`);
+async function fetchFlightDates(number, from, to, auth) {
+  const r = await adbRequest(`/flights/number/${encodeURIComponent(number)}/dates/${from}/${to}`, auth);
+  const list = await adbCheck(r, `No dates found for ${number}.`);
   const dates = (Array.isArray(list) ? list : [])
     .map((d) => (typeof d === 'string' ? d : d?.date || d?.localDate || '').slice(0, 10))
     .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
-  if (dates.length === 0) throw httpError(404, `No upcoming dates found for ${number}.`);
+  if (dates.length === 0) throw httpError(404, `No dates found for ${number}.`);
   return [...new Set(dates)].sort();
 }
 
@@ -50,17 +54,17 @@ async function fetchFlightDates(number, from, to, key) {
 // {
 //   id, number, airline: {name, iata}, status, statusText, isCodeshare,
 //   aircraft: {model, reg}, distanceKm, lastUpdated,
-//   departure: {iata, icao, name, city, tz, terminal, gate, scheduled, estimated, actual},
+//   departure: {iata, icao, name, city, tz, lat, lon, terminal, gate, scheduled, estimated, actual},
 //   arrival:   {... same, baggage},
 //   position:  {lat, lon, altFt, speedKt, heading, at} | null
 // }
 // All times are ISO-8601 UTC strings (or null). `tz` is the airport's IANA zone.
 // status is one of: scheduled, boarding, departed, enroute, landed, arrived,
 //                   delayed, cancelled, diverted, unknown
-async function fetchFlight(number, date, key) {
+async function fetchFlight(number, date, auth) {
   const r = await adbRequest(
     `/flights/number/${encodeURIComponent(number)}/${date}?withAircraftImage=false&withLocation=true&dateLocalRole=Departure`,
-    key,
+    auth,
   );
   const list = await adbCheck(r, `No flight ${number} found departing on ${date}.`);
   if (!Array.isArray(list) || list.length === 0) throw httpError(404, `No flight ${number} found departing on ${date}.`);
@@ -82,6 +86,8 @@ async function fetchFlight(number, date, key) {
       name: a.name || a.shortName || null,
       city: a.municipalityName || null,
       tz: a.timeZone || null,
+      lat: a.location?.lat ?? null,
+      lon: a.location?.lon ?? null,
       terminal: e.terminal || null,
       gate: e.gate || null,
       ...(isArrival ? { baggage: e.baggageBelt || null } : {}),

@@ -5,8 +5,9 @@ const STORAGE_KEY = 'tracked-flights-v2';
 const LEGACY_STORAGE_KEY = 'tracked-flights-v1';
 const API_KEY_STORAGE = 'aerodatabox-key';
 const MIN = 60 * 1000;
-const DATE_OPTIONS = 10; // upcoming dates offered when no date is entered
-const DATE_LOOKAHEAD_DAYS = 90;
+const DAY = 24 * 60 * MIN;
+const DATE_RANGE_DAYS = 365; // the calendar covers this many days back and ahead
+const CONFIG = window.FLIGHT_TRACKER_CONFIG || {};
 
 const els = {
   form: document.getElementById('add-form'),
@@ -14,7 +15,8 @@ const els = {
   date: document.getElementById('date'),
   submit: document.getElementById('submit'),
   msg: document.getElementById('form-msg'),
-  picker: document.getElementById('date-picker'),
+  picker: document.getElementById('lookup'),
+  toast: document.getElementById('toast'),
   list: document.getElementById('flights'),
   empty: document.getElementById('empty'),
   warning: document.getElementById('config-warning'),
@@ -25,6 +27,8 @@ const els = {
   exportBtn: document.getElementById('export'),
   importInput: document.getElementById('import'),
   stateMsg: document.getElementById('state-msg'),
+  shareAll: document.getElementById('share-all'),
+  keyMode: document.getElementById('key-mode'),
 };
 
 const trackers = new Map(); // "NUMBER|DATE" -> Tracker
@@ -72,6 +76,7 @@ function snapshot() {
     date: t.date,
     data: t.data,
     lastFetch: t.data ? t.lastFetch : 0,
+    showMap: t.showMap || undefined,
   }));
 }
 
@@ -81,6 +86,14 @@ function save() {
 
 function getApiKey() {
   return (storageGet(API_KEY_STORAGE) || '').trim();
+}
+
+// The user's own key wins; otherwise use the site's proxy if one is configured.
+function getAuth() {
+  const key = getApiKey();
+  if (key) return { key };
+  if (CONFIG.proxyUrl) return { proxy: CONFIG.proxyUrl };
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,13 +112,27 @@ class Tracker {
     this.timer = null;
     this.lastFetch = 0;
     this.nextRefreshAt = 0;
+    this.showMap = false;
+    this.map = null;
 
+    // The map lives outside the re-rendered body so it survives refreshes.
     this.el = document.createElement('article');
     this.el.className = 'card';
+    this.body = document.createElement('div');
+    this.mapEl = document.createElement('div');
+    this.mapEl.className = 'card-map';
+    this.mapEl.hidden = true;
+    this.el.append(this.body, this.mapEl);
     this.el.addEventListener('click', (e) => {
       const action = e.target.closest('[data-action]')?.dataset.action;
       if (action === 'refresh') this.refresh();
       if (action === 'remove') removeFlight(this.key);
+      if (action === 'share') copyShareLink([this], `Link to ${this.number} copied.`);
+      if (action === 'map') {
+        this.showMap = !this.showMap;
+        this.render();
+        save();
+      }
     });
   }
 
@@ -131,9 +158,9 @@ class Tracker {
     this.errorStatus = 0;
     this.render();
     try {
-      const key = getApiKey();
-      if (!key) throw httpError(401, 'Add your AeroDataBox API key in Settings to look up flights.');
-      const legs = await fetchFlight(this.number, this.date, key);
+      const auth = getAuth();
+      if (!auth) throw httpError(401, 'Add your AeroDataBox API key in Settings to look up flights.');
+      const legs = await fetchFlight(this.number, this.date, auth);
       this.data = { number: this.number, date: this.date, provider: 'aerodatabox', fetchedAt: new Date().toISOString(), legs };
       this.error = null;
       this.errorStatus = 0;
@@ -186,7 +213,20 @@ class Tracker {
 
   destroy() {
     clearTimeout(this.timer);
+    this.map?.destroy();
     this.el.remove();
+  }
+
+  hasRoute() {
+    return Boolean(this.data?.legs?.some((l) => l.departure.lat != null && l.arrival.lat != null));
+  }
+
+  renderMap() {
+    const show = this.showMap && this.hasRoute();
+    this.mapEl.hidden = !show;
+    if (!show) return;
+    if (!this.map) this.map = new FlightMap(this.mapEl);
+    this.map.update(this.data.legs, legProgress);
   }
 
   render() {
@@ -196,7 +236,7 @@ class Tracker {
     const updated = this.lastFetch ? `Updated ${relTime(this.lastFetch)}` : '';
     const next = this.nextRefreshAt ? ` · next check ${relTime(this.nextRefreshAt)}` : this.lastFetch ? ' · auto-refresh stopped' : '';
 
-    this.el.innerHTML = `
+    this.body.innerHTML = `
       <div class="card-head">
         <div>
           <div class="card-title">${esc(this.number)}</div>
@@ -204,6 +244,8 @@ class Tracker {
           <div class="card-sub">${updated}${next}</div>
         </div>
         <div class="card-actions">
+          ${this.hasRoute() ? `<button data-action="map" aria-pressed="${this.showMap}">${this.showMap ? 'Hide map' : 'Map'}</button>` : ''}
+          <button data-action="share">Share</button>
           <button data-action="refresh" ${this.loading ? 'disabled' : ''}>${this.loading ? 'Refreshing…' : 'Refresh'}</button>
           <button data-action="remove" aria-label="Stop tracking ${esc(this.number)}">Remove</button>
         </div>
@@ -212,6 +254,7 @@ class Tracker {
       ${!d && this.loading ? '<div class="loading">Looking up flight…</div>' : ''}
       ${d ? d.legs.map(renderLeg).join('') : ''}
     `;
+    this.renderMap();
   }
 }
 
@@ -365,7 +408,7 @@ function esc(s) {
 // Add / remove
 // ---------------------------------------------------------------------------
 
-function addFlight(number, date, { persist = true, data = null, lastFetch = 0 } = {}) {
+function addFlight(number, date, { persist = true, data = null, lastFetch = 0, showMap = false } = {}) {
   const key = `${number}|${date}`;
   if (trackers.has(key)) {
     const el = trackers.get(key).el;
@@ -376,6 +419,7 @@ function addFlight(number, date, { persist = true, data = null, lastFetch = 0 } 
     return false;
   }
   const t = new Tracker(number, date);
+  t.showMap = Boolean(showMap);
   trackers.set(key, t);
   // Keep cards ordered by departure date, then flight number.
   const order = (a) => `${a.date}|${a.number}`;
@@ -424,8 +468,16 @@ function localYmd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function shiftYmd(ymd, days) {
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
+}
+
+function restoreFlight(f) {
+  return addFlight(f.number, f.date, { persist: false, data: f.data, lastFetch: f.lastFetch, showMap: f.showMap });
+}
+
 function updateSubmitLabel() {
-  els.submit.textContent = els.date.value ? 'Track flight' : 'Find dates';
+  els.submit.textContent = els.date.value ? 'Track flight' : 'Look up';
 }
 
 els.date.addEventListener('input', updateSubmitLabel);
@@ -439,106 +491,174 @@ els.form.addEventListener('submit', (e) => {
     return;
   }
   if (!date) {
-    showDatePicker(number);
+    showLookup(number);
     return;
   }
-  closeDatePicker();
+  closeLookup();
   els.msg.textContent = addFlight(number, date) ? '' : `${number} on ${date} is already being tracked.`;
   if (!els.msg.textContent) els.number.value = '';
   els.number.focus();
 });
 
 // ---------------------------------------------------------------------------
-// Date picker: flight number only -> choose from its next operating dates
+// Lookup: flight number only -> next departure preview + a calendar of every
+// date it operates, to track any of them
 // ---------------------------------------------------------------------------
 
-let pickerRequest = 0;
+const datesCache = new Map(); // "NUMBER|from|to" -> { at, dates }
+let lookupRequest = 0;
+let calendar = null;
 
-function closeDatePicker() {
-  pickerRequest++;
+async function getFlightDates(number, from, to, auth) {
+  const key = `${number}|${from}|${to}`;
+  const hit = datesCache.get(key);
+  if (hit && Date.now() - hit.at < 6 * 60 * MIN) return hit.dates;
+  const dates = await fetchFlightDates(number, from, to, auth);
+  datesCache.set(key, { at: Date.now(), dates });
+  return dates;
+}
+
+function closeLookup() {
+  lookupRequest++;
+  calendar = null;
   els.picker.hidden = true;
   els.picker.innerHTML = '';
 }
 
-async function showDatePicker(number) {
-  const req = ++pickerRequest;
+async function showLookup(number) {
+  const req = ++lookupRequest;
+  calendar = null;
   els.msg.textContent = '';
   els.picker.hidden = false;
-  els.picker.innerHTML = `<div class="loading">Finding upcoming dates for ${esc(number)}…</div>`;
+  els.picker.innerHTML = `<div class="loading">Looking up ${esc(number)}…</div>`;
 
-  const key = getApiKey();
-  if (!key) {
+  const auth = getAuth();
+  if (!auth) {
     els.picker.innerHTML = '<div class="error">Add your AeroDataBox API key in Settings first.</div>';
     els.settings.open = true;
     return;
   }
 
-  const today = new Date();
-  const to = new Date(today.getTime() + DATE_LOOKAHEAD_DAYS * 24 * 60 * MIN);
+  const today = localYmd(new Date());
+  const from = shiftYmd(today, -DATE_RANGE_DAYS);
+  const to = shiftYmd(today, DATE_RANGE_DAYS);
   let dates;
   try {
-    dates = (await fetchFlightDates(number, localYmd(today), localYmd(to), key))
-      .filter((d) => d >= localYmd(today))
-      .slice(0, DATE_OPTIONS);
+    dates = await getFlightDates(number, from, to, auth);
   } catch (err) {
-    if (req !== pickerRequest) return;
-    els.picker.innerHTML = `<div class="error">${esc(err.message || 'Could not load dates.')}</div>`;
+    if (req !== lookupRequest) return;
+    els.picker.innerHTML = `
+      <div class="lookup-head"><div class="card-title">${esc(number)}</div>${closeButton()}</div>
+      <div class="error">${esc(err.message || 'Could not look up that flight.')}</div>`;
     return;
   }
-  if (req !== pickerRequest) return;
+  if (req !== lookupRequest) return;
+
+  const next = dates.find((d) => d >= today);
+  const tracked = new Set([...trackers.values()].filter((t) => t.number === number).map((t) => t.date));
 
   els.picker.innerHTML = `
-    <div class="picker-head">
-      <strong>${esc(number)}</strong> operates on these dates. Pick one or more to track.
+    <div class="lookup-head">
+      <div class="card-title">${esc(number)}</div>
+      ${closeButton()}
     </div>
-    <div class="picker-dates">
-      ${dates.map((d) => {
-        const tracked = trackers.has(`${number}|${d}`);
-        return `
-          <label class="date-chip${tracked ? ' tracked' : ''}">
-            <input type="checkbox" value="${d}" ${tracked ? 'checked disabled' : ''}>
-            <span>${esc(formatDateOnly(d))}${tracked ? ' <small>tracking</small>' : ''}</span>
-          </label>`;
-      }).join('')}
+    <div class="preview">
+      ${next
+        ? `<div class="loading">Loading the next departure…</div>`
+        : '<div class="muted">No upcoming departures are scheduled. You can still pick a past date below.</div>'}
     </div>
+    <h3 class="lookup-sub">Pick any dates it flies</h3>
+    <div class="calendar"></div>
     <div class="picker-actions">
-      <button type="button" data-pick="all">Select all</button>
-      <button type="button" data-pick="track" class="primary">Track selected</button>
-      <button type="button" data-pick="cancel">Cancel</button>
+      <button type="button" data-pick="track" class="primary" disabled>Track selected</button>
+      <button type="button" data-pick="clear" disabled>Clear selection</button>
     </div>
   `;
 
-  const boxes = () => [...els.picker.querySelectorAll('input[type=checkbox]:not(:disabled)')];
-  const selectAllBtn = els.picker.querySelector('[data-pick=all]');
-  const syncSelectAll = () => {
-    const b = boxes();
-    selectAllBtn.textContent = b.length && b.every((x) => x.checked) ? 'Clear' : 'Select all';
-    selectAllBtn.disabled = b.length === 0;
-  };
-  syncSelectAll();
+  const trackBtn = els.picker.querySelector('[data-pick=track]');
+  const clearBtn = els.picker.querySelector('[data-pick=clear]');
+  calendar = new FlightCalendar(els.picker.querySelector('.calendar'), {
+    valid: new Set(dates),
+    tracked,
+    min: from,
+    max: to,
+    today,
+    start: next || dates[dates.length - 1] || today,
+    onChange: (sel) => {
+      trackBtn.disabled = clearBtn.disabled = sel.size === 0;
+      trackBtn.textContent = sel.size ? `Track ${sel.size} date${sel.size === 1 ? '' : 's'}` : 'Track selected';
+    },
+  });
 
-  els.picker.onchange = syncSelectAll;
   els.picker.onclick = (e) => {
     const action = e.target.closest('[data-pick]')?.dataset.pick;
-    if (action === 'all') {
-      const b = boxes();
-      const check = !b.every((x) => x.checked);
-      b.forEach((x) => (x.checked = check));
-      syncSelectAll();
-    } else if (action === 'cancel') {
-      closeDatePicker();
-    } else if (action === 'track') {
-      const chosen = boxes().filter((x) => x.checked).map((x) => x.value);
-      if (chosen.length === 0) {
-        els.msg.textContent = 'Select at least one date.';
-        return;
-      }
+    if (action === 'cancel') closeLookup();
+    else if (action === 'clear') calendar.clear();
+    else if (action === 'track' || action === 'track-next') {
+      const chosen = action === 'track-next' ? [next] : [...calendar.selected].sort();
       chosen.forEach((d) => addFlight(number, d));
-      els.msg.textContent = `Tracking ${number} on ${chosen.length} date${chosen.length > 1 ? 's' : ''}.`;
+      els.msg.textContent = `Tracking ${number} on ${chosen.length === 1 ? formatDateOnly(chosen[0]) : `${chosen.length} dates`}.`;
       els.number.value = '';
-      closeDatePicker();
+      closeLookup();
     }
   };
+
+  if (next) loadPreview(number, next, auth, req);
+}
+
+function closeButton() {
+  return '<button type="button" class="close" data-pick="cancel" aria-label="Close">×</button>';
+}
+
+async function loadPreview(number, date, auth, req) {
+  const box = () => (req === lookupRequest ? els.picker.querySelector('.preview') : null);
+  let legs = trackers.get(`${number}|${date}`)?.data?.legs;
+  try {
+    if (!legs) legs = await fetchFlight(number, date, auth);
+  } catch (err) {
+    if (box()) box().innerHTML = `<div class="error">${esc(err.message || 'Could not load the next departure.')}</div>`;
+    return;
+  }
+  if (box()) box().innerHTML = renderPreview(number, date, legs);
+}
+
+// A compact, schedule-style summary: where it goes, when it usually leaves and arrives.
+function renderPreview(number, date, legs) {
+  const first = legs[0];
+  const tracked = trackers.has(`${number}|${date}`);
+  const days = Math.round((Date.parse(date) - Date.parse(localYmd(new Date()))) / DAY);
+  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  const head = [first?.airline?.name, first?.aircraft?.model].filter(Boolean).map(esc).join(' · ');
+
+  return `
+    ${head ? `<div class="muted">${head}</div>` : ''}
+    ${legs.map((leg) => {
+      const dep = leg.departure;
+      const arr = leg.arrival;
+      const dur = Date.parse(arr.scheduled) - Date.parse(dep.scheduled);
+      return `
+        <div class="pv-leg">
+          <div class="pv-route">
+            <span><b>${esc(dep.iata || dep.icao || '—')}</b> ${esc(dep.city || dep.name || '')}</span>
+            <span class="pv-arrow">→</span>
+            <span><b>${esc(arr.iata || arr.icao || '—')}</b> ${esc(arr.city || arr.name || '')}</span>
+          </div>
+          <div class="pv-times">
+            <span>Departs ${dep.scheduled ? fmtTime(dep.scheduled, dep.tz) : '—'}</span>
+            <span>Arrives ${arr.scheduled ? fmtTime(arr.scheduled, arr.tz) : '—'}</span>
+            ${dur > 0 ? `<span>${durationText(dur)}</span>` : ''}
+            ${leg.distanceKm ? `<span>${leg.distanceKm.toLocaleString()} km</span>` : ''}
+          </div>
+        </div>`;
+    }).join('')}
+    <div class="pv-next">
+      <span>Next departure <b>${esc(formatDateOnly(date))}</b> (${when})
+        ${first ? `· <span class="badge s-${first.status}">${STATUS_LABEL[first.status] || esc(first.status)}</span>` : ''}</span>
+      ${tracked
+        ? '<span class="muted">Already tracking</span>'
+        : '<button type="button" data-pick="track-next" class="primary">Track next departure</button>'}
+    </div>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -546,9 +666,14 @@ async function showDatePicker(number) {
 // ---------------------------------------------------------------------------
 
 function updateKeyWarning() {
-  const has = Boolean(getApiKey());
-  els.warning.hidden = has;
-  if (!has) els.warning.textContent = 'Add your AeroDataBox API key in Settings below to start tracking.';
+  const auth = getAuth();
+  els.warning.hidden = Boolean(auth);
+  if (!auth) els.warning.textContent = 'Add your AeroDataBox API key in Settings below to start tracking.';
+  els.keyMode.textContent = auth?.key
+    ? 'Using your own key.'
+    : auth?.proxy
+      ? "Using this site's shared key. Add your own to avoid its limits."
+      : '';
 }
 
 els.keyForm.addEventListener('submit', (e) => {
@@ -585,7 +710,7 @@ els.importInput.addEventListener('change', async () => {
     return;
   }
   let added = 0;
-  for (const f of flights) if (addFlight(f.number, f.date, { persist: false, data: f.data, lastFetch: f.lastFetch })) added++;
+  for (const f of flights) if (restoreFlight(f)) added++;
   save();
   updateEmpty();
   els.stateMsg.textContent = `Imported ${added} new flight${added === 1 ? '' : 's'}${flights.length > added ? ` (${flights.length - added} already tracked)` : ''}.`;
@@ -596,9 +721,57 @@ window.addEventListener('storage', (e) => {
   if (e.key === API_KEY_STORAGE) updateKeyWarning();
   if (e.key !== STORAGE_KEY) return;
   removeAll();
-  for (const f of loadSaved()) addFlight(f.number, f.date, { persist: false, data: f.data, lastFetch: f.lastFetch });
+  for (const f of loadSaved()) restoreFlight(f);
   updateEmpty();
 });
+
+// ---------------------------------------------------------------------------
+// Share links: #flights=UA1@2026-11-02,BA117@2026-11-03
+// ---------------------------------------------------------------------------
+
+function shareUrl(list) {
+  const url = new URL(location.href);
+  url.hash = `flights=${list.map((t) => `${t.number}@${t.date}`).join(',')}`;
+  return url.toString();
+}
+
+async function copyShareLink(list, done) {
+  if (list.length === 0) return toast('No flights to share yet.');
+  const url = shareUrl(list);
+  try {
+    await navigator.clipboard.writeText(url);
+    toast(done);
+  } catch {
+    toast(`Copy this link: ${url}`, 15000);
+  }
+}
+
+function importFromHash() {
+  const m = location.hash.match(/^#flights=([^&]*)/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  const flights = decodeURIComponent(m[1]).split(',').map((s) => {
+    const [number, date] = s.toUpperCase().split('@');
+    return { number, date };
+  });
+  const valid = parseSaved(flights);
+  let added = 0;
+  for (const f of valid) if (addFlight(f.number, f.date)) added++;
+  if (valid.length === 0) toast('That share link has no valid flights.');
+  else toast(added ? `Added ${added} shared flight${added === 1 ? '' : 's'}.` : 'You already track every flight in that link.');
+}
+
+els.shareAll.addEventListener('click', () =>
+  copyShareLink([...trackers.values()], `Link to all ${trackers.size} flight${trackers.size === 1 ? '' : 's'} copied.`));
+window.addEventListener('hashchange', importFromHash);
+
+let toastTimer = null;
+function toast(text, ms = 4000) {
+  els.toast.textContent = text;
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (els.toast.hidden = true), ms);
+}
 
 // Catch up on refreshes skipped while the tab was hidden.
 document.addEventListener('visibilitychange', () => {
@@ -623,10 +796,11 @@ setInterval(() => {
 (function init() {
   els.keyInput.value = getApiKey();
   updateKeyWarning();
-  if (!getApiKey()) els.settings.open = true;
+  if (!getAuth()) els.settings.open = true;
   updateSubmitLabel();
 
-  for (const f of loadSaved()) addFlight(f.number, f.date, { persist: false, data: f.data, lastFetch: f.lastFetch });
+  for (const f of loadSaved()) restoreFlight(f);
+  importFromHash();
   save(); // migrates a v1 list to the current format
   storageSet(LEGACY_STORAGE_KEY, null);
   updateEmpty();

@@ -24,11 +24,11 @@
         <span>Departure date (local, optional)</span>
         <input id="date" name="date" type="date">
       </label>
-      <button id="submit" type="submit">Find dates</button>
+      <button id="submit" type="submit">Look up</button>
     </form>
-    <p class="hint">Leave the date blank to choose from the flight's next operating dates.</p>
+    <p class="hint">Leave the date blank to see the next departure and a calendar of every date the flight operates.</p>
     <p id="form-msg" class="form-msg" role="status"></p>
-    <section id="date-picker" class="picker" hidden></section>
+    <section id="lookup" class="picker" hidden></section>
     <p id="config-warning" class="config-warning" hidden></p>
 
     <section id="flights" class="flights" aria-live="polite"></section>
@@ -46,20 +46,25 @@
       <p class="hint">
         Stored only in this browser and sent only to AeroDataBox.
         Get a free key at <a href="https://rapidapi.com/aedbx-aedbx/api/aerodatabox" target="_blank" rel="noopener">rapidapi.com</a>.
-        <span id="key-msg" role="status"></span>
+        <span id="key-mode"></span> <span id="key-msg" role="status"></span>
       </p>
       <div class="settings-row">
+        <button id="share-all" type="button">Copy share link</button>
         <button id="export" type="button">Export flights</button>
         <label class="file-btn">
           <input id="import" type="file" accept="application/json,.json">
           <span>Import flights</span>
         </label>
       </div>
-      <p class="hint">Your tracked flights are saved in this browser automatically. Export them to a file to back them up or move them to another device. <span id="state-msg" role="status"></span></p>
+      <p class="hint">Your tracked flights are saved in this browser automatically. Share a link to send your list to someone else, or export it to a file to back it up or move it to another device. <span id="state-msg" role="status"></span></p>
     </details>
   </main>
+  <div id="toast" class="toast" role="status" hidden></div>
 
+  <script src="config.js"></script>
   <script src="aerodatabox.js"></script>
+  <script src="calendar.js"></script>
+  <script src="map.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
