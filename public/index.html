@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flight Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Flight Tracker</h1>
+    <p class="sub">Track any number of flights. Each one updates on its own.</p>
+  </header>
+
+  <main>
+    <form id="add-form" class="add" autocomplete="off">
+      <label>
+        <span>Flight number</span>
+        <input id="number" name="number" placeholder="e.g. UA123" required maxlength="10"
+               pattern="\s*[A-Za-z0-9]{2,3}[\s-]?\d{1,4}[A-Za-z]?\s*" title="Airline code + number, e.g. UA123">
+      </label>
+      <label>
+        <span>Departure date (local)</span>
+        <input id="date" name="date" type="date" required>
+      </label>
+      <button type="submit">Track flight</button>
+    </form>
+    <p id="form-msg" class="form-msg" role="status"></p>
+    <p id="config-warning" class="config-warning" hidden></p>
+
+    <section id="flights" class="flights" aria-live="polite"></section>
+    <p id="empty" class="empty">No flights tracked yet. Add one above.</p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
