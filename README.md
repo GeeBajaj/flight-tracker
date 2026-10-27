@@ -1,25 +1,61 @@
 # Flight Tracker
 
-Enter a flight number and its local departure date to track it live. Add as many flights as you like: each one is fetched, refreshed and shown on its own, with no link to the others.
+Track live flights by flight number. Enter just the flight number to choose from its upcoming departure dates, or give a specific date. You can track as many flights (and dates) as you like, and each one refreshes on its own.
 
-## Setup
+It runs entirely in your browser: no backend, no account, no build step. You bring your own free [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) API key.
 
-1. Get an API key from one of these (accurate tracking needs a live data source):
-   - **AeroDataBox** (free tier available): subscribe at https://rapidapi.com/aedbx-aedbx/api/aerodatabox and copy your RapidAPI key.
-   - **FlightAware AeroAPI** (paid, the most precise gate and runway times): https://www.flightaware.com/aeroapi/
-2. `cp .env.example .env` and paste the key in.
-3. `npm start` (Node 18+, no dependencies), then open http://localhost:3000
+## Features
 
-## How it works
+- **Flight number only:** type `UA1` and pick any, all, or one of its next 10 operating dates.
+- **Specific date:** add a date to track one departure straight away.
+- **Live details:** status, departure and arrival times in **each airport's own time zone**, delays (scheduled times are crossed out when they change), terminal, gate, baggage belt, aircraft, and a progress bar. Altitude and ground speed appear while the flight is airborne.
+- **Multi-leg flights:** if a flight number covers several legs on the same day, every leg is shown.
+- **Smart refresh:** every 2 min in the air, every 3 min in the 3 hours before departure, and less often further out. Updates stop once a flight has arrived or been cancelled, which saves your API quota.
+- **Saved state:** your tracked flights and their latest data are kept in your browser, so a reload shows everything instantly and only refetches what is due. Open tabs stay in sync.
+- **Export / import:** save your flights to a JSON file to back them up or move them to another browser or device.
 
-- `server.js` serves the page and calls the provider for you, so your API key stays on the server. Each flight is cached for 60s to save quota.
-- Shows departure and arrival times in **each airport's own time zone**. Scheduled times are crossed out when they change, and delays are worked out from actual or estimated times.
-- Also shows status, terminal, gate, baggage belt, aircraft, and progress. With AeroDataBox you also get live altitude and speed.
-- If one flight number covers several legs on the same day (e.g. a multi-stop flight), every leg is shown.
-- Refresh speed depends on the flight: every 2 min in the air, every 3 min in the 3 hours before departure, less often further out. Updates stop once the flight has arrived or been cancelled.
-- Your tracked flights are saved in your browser, so they come back when you reload the page.
+## Getting started
 
-## Limits
+1. Get a free API key: subscribe to [AeroDataBox on RapidAPI](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) (the Basic plan is free) and copy your `X-RapidAPI-Key`.
+2. Open the app, expand **Settings**, paste the key and click **Save key**.
+3. Enter a flight number (for example `BA117`) and click **Find dates**, or also fill in a date and click **Track flight**.
 
-- FlightAware only covers about the last 10 days through the next 2 days. AeroDataBox covers a wider range of dates.
-- The data is only as accurate as the provider. Both get their times from airlines, airports, and ADS-B (live aircraft position broadcasts).
+### Your API key
+
+The key is stored only in your browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files. Anyone using a deployed copy of this site needs their own key.
+
+## Run locally
+
+Needs Node 18 or later. There are no dependencies.
+
+```sh
+git clone https://github.com/GeeBajaj/flight-tracker.git
+cd flight-tracker
+npm start
+```
+
+Then open http://localhost:3000. `server.js` only serves the files in `public/`, the same way GitHub Pages does. Any other static file server works too.
+
+## Deploy to GitHub Pages
+
+The included workflow (`.github/workflows/pages.yml`) publishes the `public/` folder on every push to `main`.
+
+1. In your repo, go to **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Push to `main`, or run the workflow manually from the **Actions** tab.
+
+## Project layout
+
+```
+public/
+  index.html      page markup
+  styles.css      styles (light and dark)
+  app.js          tracking, refresh scheduling, date picker, saved state
+  aerodatabox.js  API client: rate-limited requests, normalized flight data
+server.js         tiny static server for local development
+```
+
+## Notes and limits
+
+- Data comes from AeroDataBox. Coverage and accuracy depend on the airline and airport, and some smaller carriers may be missing or late to update.
+- The free plan has a monthly request quota and a per-second limit. The app spaces out its requests and caches results, but tracking many flights at once uses quota faster.
+- Flight dates are the local departure date at the origin airport.
