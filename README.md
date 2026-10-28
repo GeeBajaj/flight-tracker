@@ -2,7 +2,9 @@
 
 Track live flights by flight number. Enter just the flight number to see where it goes, when it usually leaves and a calendar of every date it flies, or give a specific date. You can track as many flights (and dates) as you like, and each one refreshes on its own.
 
-It's a static site: no build step and no account. Flight data comes from [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox). Each visitor can use their own free API key, or the site owner can run a small [proxy](#optional-shared-key-proxy) so nobody needs one.
+**Live at [geebajaj.github.io/flight-tracker](https://geebajaj.github.io/flight-tracker/)**, no sign-up or API key needed.
+
+It's a static site with no build step. Flight data comes from [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) through a small [proxy](#optional-shared-key-proxy) that holds the API key. If you host your own copy without a proxy, each visitor enters their own free key instead.
 
 ## Features
 
@@ -18,15 +20,16 @@ It's a static site: no build step and no account. Flight data comes from [AeroDa
 
 ## Getting started
 
-1. Get a free API key: subscribe to [AeroDataBox on RapidAPI](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) (the Basic plan is free) and copy your `X-RapidAPI-Key`.
-2. Open the app, expand **Settings**, paste the key and click **Save key**.
-3. Enter a flight number (for example `BA117`) and click **Find dates**, or also fill in a date and click **Track flight**.
+Enter a flight number (for example `BA117`) and click **Look up**, or also fill in a date and click **Track flight**.
 
-If the site has a proxy configured, you can skip step 2.
+### Without a proxy
 
-### Your API key
+If `proxyUrl` in `public/config.js` is empty, the app asks each visitor for their own key:
 
-The key is stored only in your browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files and share links. If you add your own key, it is used instead of the site's proxy.
+1. Subscribe to [AeroDataBox on RapidAPI](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) (the Basic plan is free) and copy your `X-RapidAPI-Key`.
+2. Open **Backup & settings** at the bottom of the page, paste the key and click **Save key**.
+
+The key is stored only in that browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files and share links. When a proxy is configured, the key field is hidden and every request goes through the proxy.
 
 ## Run locally
 

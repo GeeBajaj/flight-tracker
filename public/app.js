@@ -28,7 +28,9 @@ const els = {
   importInput: document.getElementById('import'),
   stateMsg: document.getElementById('state-msg'),
   shareAll: document.getElementById('share-all'),
-  keyMode: document.getElementById('key-mode'),
+  keySection: document.getElementById('key-section'),
+  listHead: document.getElementById('list-head'),
+  count: document.getElementById('count'),
 };
 
 const trackers = new Map(); // "NUMBER|DATE" -> Tracker
@@ -88,12 +90,11 @@ function getApiKey() {
   return (storageGet(API_KEY_STORAGE) || '').trim();
 }
 
-// The user's own key wins; otherwise use the site's proxy if one is configured.
+// A site with a proxy always uses it; otherwise each visitor brings their own key.
 function getAuth() {
-  const key = getApiKey();
-  if (key) return { key };
   if (CONFIG.proxyUrl) return { proxy: CONFIG.proxyUrl };
-  return null;
+  const key = getApiKey();
+  return key ? { key } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,29 +232,43 @@ class Tracker {
 
   render() {
     const d = this.data;
-    const first = d?.legs?.[0];
+    const legs = d?.legs || [];
+    const first = legs[0];
+    const status = cardStatus(legs);
+    for (const c of [...this.el.classList]) if (c.startsWith('s-')) this.el.classList.remove(c);
+    this.el.classList.add(`s-${status}`);
+
+    const code = first?.airline?.iata || this.number.slice(0, 2);
     const airline = first?.airline?.name ? `${esc(first.airline.name)} · ` : '';
     const updated = this.lastFetch ? `Updated ${relTime(this.lastFetch)}` : '';
     const next = this.nextRefreshAt ? ` · next check ${relTime(this.nextRefreshAt)}` : this.lastFetch ? ' · auto-refresh stopped' : '';
+    const iconBtn = (action, icon, label, extra = '') =>
+      `<button class="icon-btn${action === 'remove' ? ' danger' : ''}" data-action="${action}" aria-label="${label}" title="${label}" ${extra}>${ICONS[icon]}</button>`;
 
     this.body.innerHTML = `
-      <div class="card-head">
-        <div>
-          <div class="card-title">${esc(this.number)}</div>
-          <div class="card-sub">${airline}Departs ${esc(formatDateOnly(this.date))}</div>
-          <div class="card-sub">${updated}${next}</div>
+      <div class="card-top">
+        <div class="airline">
+          <span class="airline-badge" style="--hue:${hueFor(code)}" aria-hidden="true">${esc(code)}</span>
+          <div>
+            <div class="flight-no">${esc(this.number)}</div>
+            <div class="card-sub">${airline}${esc(formatDateOnly(this.date))}</div>
+          </div>
         </div>
+        ${legs.length === 1 ? statusBadge(first) : ''}
         <div class="card-actions">
-          ${this.hasRoute() ? `<button data-action="map" aria-pressed="${this.showMap}">${this.showMap ? 'Hide map' : 'Map'}</button>` : ''}
-          <button data-action="share">Share</button>
-          <button data-action="refresh" ${this.loading ? 'disabled' : ''}>${this.loading ? 'Refreshing…' : 'Refresh'}</button>
-          <button data-action="remove" aria-label="Stop tracking ${esc(this.number)}">Remove</button>
+          ${this.hasRoute() ? iconBtn('map', 'map', this.showMap ? 'Hide map' : 'Show map', `aria-pressed="${this.showMap}"`) : ''}
+          ${iconBtn('share', 'share', `Copy link to ${esc(this.number)}`)}
+          ${iconBtn('refresh', 'refresh', 'Refresh now', this.loading ? 'disabled' : '')}
+          ${iconBtn('remove', 'remove', `Stop tracking ${esc(this.number)}`)}
         </div>
       </div>
       ${this.error ? `<div class="error">${esc(this.error)}${d ? ' Showing last known data.' : ''}</div>` : ''}
-      ${!d && this.loading ? '<div class="loading">Looking up flight…</div>' : ''}
-      ${d ? d.legs.map(renderLeg).join('') : ''}
+      ${!d && this.loading ? '<div class="skeleton" aria-label="Looking up flight"><i></i><i></i><i></i></div>' : ''}
+      ${legs.map((l) => renderLeg(l, legs.length > 1)).join('')}
+      ${d || this.lastFetch ? `<div class="card-foot"><span>${updated}${next}</span>${
+        first?.lastUpdated ? `<span>Provider data ${relTime(Date.parse(first.lastUpdated))}</span>` : ''}</div>` : '<div class="card-foot"></div>'}
     `;
+    if (this.loading) this.body.querySelector('[data-action=refresh]')?.classList.add('spin');
     this.renderMap();
   }
 }
@@ -267,71 +282,112 @@ const STATUS_LABEL = {
   arrived: 'Arrived', delayed: 'Delayed', cancelled: 'Cancelled', diverted: 'Diverted', unknown: 'Unknown',
 };
 
-function renderLeg(leg) {
+const PLANE_PATH = 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z';
+const ICONS = {
+  map: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>',
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>',
+  remove: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+};
+
+// The status the card as a whole shows: the first leg still in progress, else the last leg.
+function cardStatus(legs) {
+  if (!legs.length) return 'unknown';
+  return (legs.find((l) => !['arrived', 'cancelled'].includes(l.status)) || legs[legs.length - 1]).status;
+}
+
+function statusBadge(leg) {
+  return `<span class="badge s-${leg.status}">${STATUS_LABEL[leg.status] || esc(leg.status)}</span>`;
+}
+
+// A stable colour per airline code for its badge.
+function hueFor(code) {
+  return [...String(code)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+}
+
+function renderLeg(leg, multi) {
   const dep = leg.departure;
   const arr = leg.arrival;
   const progress = legProgress(leg);
-  const facts = [
-    leg.aircraft?.model && `Aircraft: ${esc(leg.aircraft.model)}`,
-    leg.aircraft?.reg && `Reg: ${esc(leg.aircraft.reg)}`,
-    leg.distanceKm && `${leg.distanceKm.toLocaleString()} km`,
-    leg.position?.altFt != null && `Altitude: ${Math.round(leg.position.altFt).toLocaleString()} ft`,
-    leg.position?.speedKt != null && `Ground speed: ${Math.round(leg.position.speedKt)} kt`,
-    leg.lastUpdated && `Provider updated ${relTime(Date.parse(leg.lastUpdated))}`,
+  const tiles = [
+    ['Terminal', dep.terminal],
+    ['Gate', dep.gate],
+    ['Arr. terminal', arr.terminal],
+    ['Arr. gate', arr.gate],
+    ['Baggage', arr.baggage],
+    ['Aircraft', leg.aircraft?.model, 'wide'],
+    ['Registration', leg.aircraft?.reg],
+    ['Distance', leg.distanceKm && `${leg.distanceKm.toLocaleString()} km`],
+    ['Altitude', leg.position?.altFt != null && `${Math.round(leg.position.altFt).toLocaleString()} ft`],
+    ['Speed', leg.position?.speedKt != null && `${Math.round(leg.position.speedKt)} kt`],
+  ].filter(([, v]) => v);
+  const notes = [
+    leg.statusText && squash(leg.statusText) !== squash(STATUS_LABEL[leg.status] || '') && esc(leg.statusText),
+    leg.isCodeshare && 'Codeshare',
   ].filter(Boolean);
 
   let midText = '';
   if (leg.status === 'cancelled') midText = 'Cancelled';
   else if (progress != null && progress > 0 && progress < 100) {
     const eta = Date.parse(arr.estimated || arr.scheduled) - Date.now();
-    midText = eta > 0 ? `${durationText(eta)} remaining` : 'Arriving';
-  } else if (progress == null || progress === 0) {
+    midText = eta > 0 ? `${durationText(eta)} to go` : 'Arriving';
+  } else if (progress === 100) midText = 'Landed';
+  else {
     const dur = Date.parse(arr.scheduled) - Date.parse(dep.scheduled);
-    if (dur > 0) midText = `${durationText(dur)} flight`;
+    if (dur > 0) midText = durationText(dur);
   }
 
   return `
     <div class="leg">
-      <div class="leg-head">
-        <span class="badge s-${leg.status}">${STATUS_LABEL[leg.status] || esc(leg.status)}</span>
-        ${leg.statusText && leg.statusText.toLowerCase() !== (STATUS_LABEL[leg.status] || '').toLowerCase()
-          ? `<span class="status-text">${esc(leg.statusText)}</span>` : ''}
-        ${leg.isCodeshare ? '<span class="status-text">Codeshare</span>' : ''}
-      </div>
+      ${multi || notes.length ? `<div class="leg-head">${multi ? statusBadge(leg) : ''}${notes.map((n) => `<span class="status-text">${n}</span>`).join('')}</div>` : ''}
       <div class="route">
-        ${renderEnd(dep, 'dep', leg)}
+        <div class="end dep">
+          <div class="code">${esc(dep.iata || dep.icao || '—')}</div>
+          <div class="apt">${esc(airportName(dep))}</div>
+        </div>
         <div class="mid">
           <div class="bar">
             <div class="bar-fill" style="width:${progress ?? 0}%"></div>
-            ${leg.status !== 'cancelled' ? `<span class="plane" style="left:${progress ?? 0}%">✈</span>` : ''}
+            ${leg.status !== 'cancelled' ? `<span class="plane" style="left:${progress ?? 0}%"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PLANE_PATH}"/></svg></span>` : ''}
           </div>
           <div class="mid-text">${midText}</div>
         </div>
-        ${renderEnd(arr, 'arr', leg)}
+        <div class="end arr">
+          <div class="code">${esc(arr.iata || arr.icao || '—')}</div>
+          <div class="apt">${esc(airportName(arr))}</div>
+        </div>
       </div>
-      ${facts.length ? `<div class="extra">${facts.map((f) => `<span>${f}</span>`).join('')}</div>` : ''}
+      <div class="times">${timeBlock(dep, 'dep', leg)}${timeBlock(arr, 'arr', leg)}</div>
+      <div class="perf"></div>
+      ${tiles.length ? `<div class="stub">${tiles.map(([k, v, cls]) =>
+        `<div class="tile${cls ? ` ${cls}` : ''}"><span>${k}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join('')}</div>` : ''}
     </div>
   `;
 }
 
-function renderEnd(e, kind, leg) {
-  const best = e.actual || e.estimated || e.scheduled;
-  const label = e.actual ? (kind === 'dep' ? 'Departed' : 'Arrived') : e.estimated ? 'Estimated' : 'Scheduled';
-  const changed = best && e.scheduled && Math.abs(Date.parse(best) - Date.parse(e.scheduled)) >= MIN;
-  const facts = [
-    e.terminal && `Terminal <b>${esc(e.terminal)}</b>`,
-    e.gate && `Gate <b>${esc(e.gate)}</b>`,
-    e.baggage && `Baggage <b>${esc(e.baggage)}</b>`,
-  ].filter(Boolean);
+function squash(s) {
+  return s.toLowerCase().replace(/[^a-z]/g, '');
+}
 
+function airportName(e) {
+  return [e.city, e.name].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' · ');
+}
+
+function timeBlock(e, kind, leg) {
+  const best = e.actual || e.estimated || e.scheduled;
+  const dep = kind === 'dep';
+  const label = e.actual ? (dep ? 'Departed' : 'Arrived') : e.estimated ? (dep ? 'Expected departure' : 'Expected arrival') : (dep ? 'Departs' : 'Arrives');
+  const p = best ? timeParts(best, e.tz) : null;
+  const changed = best && e.scheduled && Math.abs(Date.parse(best) - Date.parse(e.scheduled)) >= MIN;
   return `
-    <div class="end ${kind}">
-      <div class="code">${esc(e.iata || e.icao || '—')}</div>
-      <div class="apt">${esc([e.city, e.name].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' · '))}</div>
-      <div class="time">${best ? fmtTime(best, e.tz) : '—'} <small>${label}</small></div>
-      ${changed ? `<div class="sched">Scheduled <s>${fmtTime(e.scheduled, e.tz)}</s></div>` : ''}
-      ${leg.status !== 'cancelled' ? delayHtml(e) : ''}
-      ${facts.length ? `<div class="facts">${facts.join(' · ')}</div>` : ''}
+    <div class="time-block ${kind}">
+      <div class="t-label">${label}</div>
+      <div class="t-big">${p ? `${esc(p.time)}<span class="tz">${esc(p.zone)}</span>` : '—'}</div>
+      <div class="t-sub">
+        ${p ? `<span>${esc(p.day)}</span>` : ''}
+        ${changed ? `<s title="Scheduled">${esc(timeParts(e.scheduled, e.tz).time)}</s>` : ''}
+        ${leg.status !== 'cancelled' ? delayHtml(e) : ''}
+      </div>
     </div>
   `;
 }
@@ -340,9 +396,9 @@ function delayHtml(e) {
   const best = e.actual || e.estimated;
   if (!best || !e.scheduled) return '';
   const mins = Math.round((Date.parse(best) - Date.parse(e.scheduled)) / MIN);
-  if (mins >= 1) return `<div class="delay ${mins >= 30 ? 'very-late' : 'late'}">${durationText(mins * MIN)} late</div>`;
-  if (mins <= -1) return `<div class="delay early">${durationText(-mins * MIN)} early</div>`;
-  return '<div class="delay ontime">On time</div>';
+  if (mins >= 1) return `<span class="delay ${mins >= 30 ? 'very-late' : 'late'}">${durationText(mins * MIN)} late</span>`;
+  if (mins <= -1) return `<span class="delay early">${durationText(-mins * MIN)} early</span>`;
+  return '<span class="delay ontime">On time</span>';
 }
 
 // Percentage of the flight completed, based on actual/estimated times.
@@ -360,18 +416,24 @@ function legProgress(leg) {
 // Formatting (times are shown in each airport's own time zone)
 // ---------------------------------------------------------------------------
 
-function fmtTime(iso, tz) {
+function timeParts(iso, tz) {
   const d = new Date(iso);
-  const opts = { hour: '2-digit', minute: '2-digit', timeZone: tz || undefined };
+  const timeZone = tz || undefined;
   try {
-    const time = new Intl.DateTimeFormat(undefined, opts).format(d);
-    const day = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: tz || undefined }).format(d);
-    const zone = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short', timeZone: tz || undefined })
-      .formatToParts(d).find((p) => p.type === 'timeZoneName')?.value || '';
-    return `${time} <small>${esc(zone)} · ${esc(day)}</small>`;
+    return {
+      time: new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZone }).format(d),
+      day: new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone }).format(d),
+      zone: new Intl.DateTimeFormat('en-US', { timeZoneName: 'short', timeZone })
+        .formatToParts(d).find((p) => p.type === 'timeZoneName')?.value || '',
+    };
   } catch {
-    return esc(d.toUTCString());
+    return { time: d.toISOString().slice(11, 16), day: d.toISOString().slice(0, 10), zone: 'UTC' };
   }
+}
+
+function fmtTime(iso, tz) {
+  const p = timeParts(iso, tz);
+  return `${esc(p.time)} <small>${esc(p.zone)} · ${esc(p.day)}</small>`;
 }
 
 function formatDateOnly(ymd) {
@@ -450,6 +512,8 @@ function removeAll() {
 
 function updateEmpty() {
   els.empty.hidden = trackers.size > 0;
+  els.listHead.hidden = trackers.size === 0;
+  els.count.textContent = trackers.size;
 }
 
 function isFlightNumber(s) {
@@ -481,6 +545,15 @@ function updateSubmitLabel() {
 }
 
 els.date.addEventListener('input', updateSubmitLabel);
+
+document.querySelectorAll('[data-example]').forEach((b) =>
+  b.addEventListener('click', () => {
+    els.number.value = b.dataset.example;
+    els.date.value = '';
+    updateSubmitLabel();
+    closeLookup();
+    showLookup(b.dataset.example);
+  }));
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -530,7 +603,8 @@ async function showLookup(number) {
   calendar = null;
   els.msg.textContent = '';
   els.picker.hidden = false;
-  els.picker.innerHTML = `<div class="loading">Looking up ${esc(number)}…</div>`;
+  els.picker.innerHTML = `<div class="skeleton" aria-label="Looking up ${esc(number)}"><i></i><i></i><i></i></div>`;
+  els.picker.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   const auth = getAuth();
   if (!auth) {
@@ -548,7 +622,7 @@ async function showLookup(number) {
   } catch (err) {
     if (req !== lookupRequest) return;
     els.picker.innerHTML = `
-      <div class="lookup-head"><div class="card-title">${esc(number)}</div>${closeButton()}</div>
+      <div class="lookup-head"><div class="flight-no">${esc(number)}</div>${closeButton()}</div>
       <div class="error">${esc(err.message || 'Could not look up that flight.')}</div>`;
     return;
   }
@@ -559,15 +633,15 @@ async function showLookup(number) {
 
   els.picker.innerHTML = `
     <div class="lookup-head">
-      <div class="card-title">${esc(number)}</div>
+      <div class="flight-no">${esc(number)}</div>
       ${closeButton()}
     </div>
     <div class="preview">
       ${next
-        ? `<div class="loading">Loading the next departure…</div>`
+        ? '<div class="skeleton" aria-label="Loading the next departure"><i></i><i></i></div>'
         : '<div class="muted">No upcoming departures are scheduled. You can still pick a past date below.</div>'}
     </div>
-    <h3 class="lookup-sub">Pick any dates it flies</h3>
+    <h3 class="lookup-sub">Every date it flies</h3>
     <div class="calendar"></div>
     <div class="picker-actions">
       <button type="button" data-pick="track" class="primary" disabled>Track selected</button>
@@ -668,12 +742,9 @@ function renderPreview(number, date, legs) {
 function updateKeyWarning() {
   const auth = getAuth();
   els.warning.hidden = Boolean(auth);
-  if (!auth) els.warning.textContent = 'Add your AeroDataBox API key in Settings below to start tracking.';
-  els.keyMode.textContent = auth?.key
-    ? 'Using your own key.'
-    : auth?.proxy
-      ? "Using this site's shared key. Add your own to avoid its limits."
-      : '';
+  if (!auth) els.warning.textContent = 'Add your AeroDataBox API key under Backup & settings at the bottom of the page to start tracking.';
+  // With a proxy the site supplies the key, so there is nothing for visitors to set.
+  els.keySection.hidden = Boolean(CONFIG.proxyUrl);
 }
 
 els.keyForm.addEventListener('submit', (e) => {
