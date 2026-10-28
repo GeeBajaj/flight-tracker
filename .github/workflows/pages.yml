@@ -23,6 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Stamp asset URLs with the commit so browsers never mix cached files from an
+      # older deploy, and publish the version the page checks to update itself.
+      - name: Version assets
+        run: |
+          V="${GITHUB_SHA::8}"
+          sed -i -E "s/(href|src)=\"(styles\.css|config\.js|aerodatabox\.js|calendar\.js|map\.js|app\.js)\"/\1=\"\2?v=$V\"/g" public/index.html
+          sed -i "s/<meta name=\"app-version\" content=\"dev\">/<meta name=\"app-version\" content=\"$V\">/" public/index.html
+          printf '{"version":"%s"}\n' "$V" > public/version.json
+          grep -c "?v=$V" public/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public

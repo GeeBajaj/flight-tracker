@@ -876,6 +876,27 @@ setInterval(() => {
 }, 30 * 1000);
 
 // ---------------------------------------------------------------------------
+// Updates: browsers may serve a cached copy of the page for a while after a
+// deploy. If the live version is newer, reload once to pick it up.
+// ---------------------------------------------------------------------------
+
+async function checkForUpdate() {
+  const current = document.querySelector('meta[name="app-version"]')?.content;
+  if (!current || current === 'dev') return;
+  try {
+    const r = await fetch('version.json', { cache: 'no-store' });
+    const { version } = await r.json();
+    if (!version || version === current) return;
+    // Guard against a reload loop if the CDN is still catching up.
+    if (sessionStorage.getItem('reloaded-for') === version) return;
+    sessionStorage.setItem('reloaded-for', version);
+    location.reload();
+  } catch {
+    /* offline or blocked: keep the copy we have */
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -890,4 +911,5 @@ setInterval(() => {
   save(); // migrates a v1 list to the current format
   storageSet(LEGACY_STORAGE_KEY, null);
   updateEmpty();
+  checkForUpdate(); // after importFromHash() has saved any shared flights
 })();
