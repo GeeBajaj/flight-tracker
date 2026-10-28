@@ -27,7 +27,7 @@ Enter a flight number (for example `BA117`) and click **Look up**, or also fill 
 If `proxyUrl` in `public/config.js` is empty, the app asks each visitor for their own key:
 
 1. Subscribe to [AeroDataBox on RapidAPI](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) (the Basic plan is free) and copy your `X-RapidAPI-Key`.
-2. Open **Backup & settings** at the bottom of the page, paste the key and click **Save key**.
+2. Click **API key** at the top of the page, paste the key and click **Save key**.
 
 The key is stored only in that browser's `localStorage` and is sent only to AeroDataBox. It is never committed to this repo and is left out of exported files and share links. When a proxy is configured, the key field is hidden and every request goes through the proxy.
 

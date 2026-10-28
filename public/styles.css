@@ -97,7 +97,25 @@ button svg, .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: curre
   75%  { left: 77%;  top: 43%; transform: translate(-50%, -50%) rotate(104deg); }
   100% { left: 103%; top: 78%; transform: translate(-50%, -50%) rotate(116deg); }
 }
-.hero-inner { position: relative; max-width: 960px; margin: 0 auto; padding: 28px 16px 44px; }
+.hero-inner { position: relative; max-width: 960px; margin: 0 auto; padding: 22px 16px 44px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toolbar { display: flex; gap: 6px; }
+.toolbar button, .tool-file {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .16);
+  transition: background .15s, border-color .15s;
+}
+.toolbar button:hover, .tool-file:hover, .toolbar [aria-expanded="true"] { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .35); }
+.toolbar svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tool-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.tool-file:focus-within { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* Once flights are tracked, the intro gives way to a compact header. */
+.has-flights .hero .intro { display: none; }
+.has-flights .hero-inner { padding: 16px 16px 22px; }
+.has-flights .search { margin-top: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .3); }
+.has-flights .hero-plane { animation-duration: 40s; opacity: .7; }
 .brand { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; letter-spacing: .02em; opacity: .9; }
 .brand svg { width: 20px; height: 20px; fill: var(--amber); transform: rotate(45deg); }
 .hero h1 { font-family: var(--display); font-size: clamp(34px, 6vw, 56px); line-height: 1.05; margin: 36px 0 10px; letter-spacing: -.02em; }
@@ -355,20 +373,11 @@ main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
 /* ---------------------------------------------------------------- Footer */
 
 .footer { max-width: 960px; margin: 40px auto 0; padding: 0 16px 32px; }
-.settings { background: var(--card); border-radius: 16px; padding: 14px 18px; box-shadow: var(--shadow); }
-.settings summary { cursor: pointer; font-weight: 600; }
-.settings-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 12px; }
-.settings-row label:not(.file-btn) { display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px; }
+.key-section { margin-top: 20px; }
+.settings-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.settings-row label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px; }
 .settings-row label span { font-size: 13px; color: var(--muted); }
 .settings-row input { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
-.file-btn { position: relative; }
-.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.file-btn span {
-  display: inline-block; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--card); color: var(--text) !important; font-size: 15px !important;
-}
-.file-btn:hover span { border-color: var(--accent); }
-.file-btn:focus-within span { outline: 2px solid var(--accent); }
 .credits { text-align: center; color: var(--muted); font-size: 13px; margin: 20px 0 0; }
 .credits a { color: inherit; }
 
@@ -383,7 +392,9 @@ main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
 /* ---------------------------------------------------------------- Small screens */
 
 @media (max-width: 640px) {
-  .hero-inner { padding: 22px 16px 32px; }
+  .hero-inner { padding: 18px 16px 32px; }
+  .toolbar button span, .tool-file span { display: none; }
+  .toolbar button, .tool-file { padding: 8px; }
   .hero h1 { margin-top: 24px; }
   .search { grid-template-columns: 1fr 1fr; }
   .search-btn { grid-column: 1 / -1; padding: 12px; margin-top: 4px; }

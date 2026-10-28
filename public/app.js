@@ -20,13 +20,12 @@ const els = {
   list: document.getElementById('flights'),
   empty: document.getElementById('empty'),
   warning: document.getElementById('config-warning'),
-  settings: document.getElementById('settings'),
+  keyBtn: document.getElementById('key-btn'),
   keyForm: document.getElementById('key-form'),
   keyInput: document.getElementById('api-key'),
   keyMsg: document.getElementById('key-msg'),
   exportBtn: document.getElementById('export'),
   importInput: document.getElementById('import'),
-  stateMsg: document.getElementById('state-msg'),
   shareAll: document.getElementById('share-all'),
   keySection: document.getElementById('key-section'),
   listHead: document.getElementById('list-head'),
@@ -514,6 +513,7 @@ function updateEmpty() {
   els.empty.hidden = trackers.size > 0;
   els.listHead.hidden = trackers.size === 0;
   els.count.textContent = trackers.size;
+  document.body.classList.toggle('has-flights', trackers.size > 0);
 }
 
 function isFlightNumber(s) {
@@ -609,7 +609,7 @@ async function showLookup(number) {
   const auth = getAuth();
   if (!auth) {
     els.picker.innerHTML = '<div class="error">Add your AeroDataBox API key in Settings first.</div>';
-    els.settings.open = true;
+    showKeyPanel(true);
     return;
   }
 
@@ -742,10 +742,20 @@ function renderPreview(number, date, legs) {
 function updateKeyWarning() {
   const auth = getAuth();
   els.warning.hidden = Boolean(auth);
-  if (!auth) els.warning.textContent = 'Add your AeroDataBox API key under Backup & settings at the bottom of the page to start tracking.';
+  if (!auth) els.warning.textContent = 'Add your AeroDataBox API key above to start tracking.';
   // With a proxy the site supplies the key, so there is nothing for visitors to set.
-  els.keySection.hidden = Boolean(CONFIG.proxyUrl);
+  els.keyBtn.hidden = Boolean(CONFIG.proxyUrl);
+  if (CONFIG.proxyUrl) showKeyPanel(false);
 }
+
+function showKeyPanel(show) {
+  if (CONFIG.proxyUrl) show = false;
+  els.keySection.hidden = !show;
+  els.keyBtn.setAttribute('aria-expanded', String(show));
+  if (show && !els.keyInput.value) els.keyInput.focus();
+}
+
+els.keyBtn.addEventListener('click', () => showKeyPanel(els.keySection.hidden));
 
 els.keyForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -754,10 +764,15 @@ els.keyForm.addEventListener('submit', (e) => {
   els.keyMsg.textContent = key ? 'Saved in this browser.' : 'Key removed.';
   updateKeyWarning();
   // Retry flights that failed only because the key was missing or wrong.
-  if (key) for (const t of trackers.values()) if (t.errorStatus === 401) t.refresh();
+  if (key) {
+    for (const t of trackers.values()) if (t.errorStatus === 401) t.refresh();
+    showKeyPanel(false);
+    toast('API key saved in this browser.');
+  }
 });
 
 els.exportBtn.addEventListener('click', () => {
+  if (trackers.size === 0) return toast('No flights to export yet.');
   // The API key is deliberately left out of the file.
   const body = JSON.stringify({ app: 'flight-tracker', version: 2, exportedAt: new Date().toISOString(), flights: snapshot() }, null, 2);
   const a = document.createElement('a');
@@ -765,7 +780,7 @@ els.exportBtn.addEventListener('click', () => {
   a.download = `flights-${localYmd(new Date())}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  els.stateMsg.textContent = `Exported ${trackers.size} flight${trackers.size === 1 ? '' : 's'}.`;
+  toast(`Exported ${trackers.size} flight${trackers.size === 1 ? '' : 's'}.`);
 });
 
 els.importInput.addEventListener('change', async () => {
@@ -777,14 +792,14 @@ els.importInput.addEventListener('change', async () => {
     const parsed = JSON.parse(await file.text());
     flights = parseSaved(Array.isArray(parsed) ? parsed : parsed.flights);
   } catch {
-    els.stateMsg.textContent = 'That file is not a valid flight list.';
+    toast('That file is not a valid flight list.');
     return;
   }
   let added = 0;
   for (const f of flights) if (restoreFlight(f)) added++;
   save();
   updateEmpty();
-  els.stateMsg.textContent = `Imported ${added} new flight${added === 1 ? '' : 's'}${flights.length > added ? ` (${flights.length - added} already tracked)` : ''}.`;
+  toast(`Imported ${added} new flight${added === 1 ? '' : 's'}${flights.length > added ? ` (${flights.length - added} already tracked)` : ''}.`);
 });
 
 // Another tab changed the list: mirror it here.
@@ -867,7 +882,7 @@ setInterval(() => {
 (function init() {
   els.keyInput.value = getApiKey();
   updateKeyWarning();
-  if (!getAuth()) els.settings.open = true;
+  if (!getAuth()) showKeyPanel(true);
   updateSubmitLabel();
 
   for (const f of loadSaved()) restoreFlight(f);
